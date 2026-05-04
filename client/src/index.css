@@ -17,31 +17,61 @@ body {
   margin: 0;
   font-family: 'Manrope', sans-serif;
   background:
-    radial-gradient(circle at top left, rgba(20, 184, 166, 0.22), transparent 28%),
-    radial-gradient(circle at top right, rgba(245, 158, 11, 0.18), transparent 24%),
-    linear-gradient(180deg, #020617 0%, #0f172a 55%, #111827 100%);
-  color: #e2e8f0;
+    radial-gradient(circle at 12% 10%, rgba(245, 158, 11, 0.2), transparent 24%),
+    radial-gradient(circle at 88% 0%, rgba(20, 184, 166, 0.18), transparent 20%),
+    radial-gradient(circle at 50% 120%, rgba(225, 29, 72, 0.14), transparent 30%),
+    linear-gradient(180deg, #050816 0%, #0b1020 52%, #101827 100%);
+  color: #e5e7eb;
 }
 
 ::selection {
-  background: rgba(245, 158, 11, 0.35);
+  background: rgba(20, 184, 166, 0.3);
   color: white;
 }
 
 @layer components {
+  .app-shell {
+    @apply relative overflow-hidden;
+  }
+
+  .app-shell::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+    background-size: 36px 36px;
+    mask-image: radial-gradient(circle at center, black 35%, transparent 100%);
+    opacity: 0.5;
+  }
+
   .glass-panel {
-    @apply border border-white/10 bg-white/5 backdrop-blur-xl shadow-glow;
+    @apply border border-white/10 bg-white/[0.045] backdrop-blur-2xl shadow-[0_30px_80px_-40px_rgba(2,6,23,0.9)];
+  }
+
+  .surface-panel {
+    @apply rounded-[2rem] border border-white/10 bg-slate-950/70 shadow-[0_30px_80px_-40px_rgba(2,6,23,0.95)];
   }
 
   .input-field {
-    @apply w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3 text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-gold/70 focus:ring-2 focus:ring-gold/20;
+    @apply w-full rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-teal/70 focus:ring-2 focus:ring-teal/20;
   }
 
   .primary-button {
-    @apply inline-flex items-center justify-center rounded-2xl bg-gold px-5 py-3 font-semibold text-slate-950 transition hover:translate-y-[-1px] hover:bg-amber-400;
+    @apply inline-flex items-center justify-center rounded-2xl bg-gradient-to-r from-gold via-amber-400 to-teal px-5 py-3 font-semibold text-slate-950 transition hover:-translate-y-0.5 hover:shadow-lg hover:shadow-amber-500/20;
   }
 
   .ghost-button {
-    @apply inline-flex items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-5 py-3 font-semibold text-slate-100 transition hover:bg-white/10;
+    @apply inline-flex items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-3 font-semibold text-slate-100 transition hover:border-white/20 hover:bg-white/10;
+  }
+
+  .section-kicker {
+    @apply inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-4 py-2 text-xs font-semibold uppercase tracking-[0.28em] text-slate-300;
+  }
+
+  .metric-card {
+    @apply rounded-[1.5rem] border border-white/10 bg-white/[0.04] p-4;
   }
 }

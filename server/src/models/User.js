@@ -9,6 +9,70 @@ const socialLinksSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const studentRoleDetailsSchema = new mongoose.Schema(
+  {
+    education: {
+      type: String,
+      trim: true,
+    },
+    projects: {
+      type: [String],
+      default: [],
+    },
+  },
+  { _id: false }
+);
+
+const startupRoleDetailsSchema = new mongoose.Schema(
+  {
+    startupName: {
+      type: String,
+      trim: true,
+    },
+    domain: {
+      type: String,
+      trim: true,
+    },
+    fundingStage: {
+      type: String,
+      trim: true,
+    },
+  },
+  { _id: false }
+);
+
+const vcRoleDetailsSchema = new mongoose.Schema(
+  {
+    firmName: {
+      type: String,
+      trim: true,
+    },
+    investmentFocus: {
+      type: [String],
+      default: [],
+    },
+  },
+  { _id: false }
+);
+
+const roleDetailsSchema = new mongoose.Schema(
+  {
+    student: {
+      type: studentRoleDetailsSchema,
+      default: () => ({}),
+    },
+    startup: {
+      type: startupRoleDetailsSchema,
+      default: () => ({}),
+    },
+    vc: {
+      type: vcRoleDetailsSchema,
+      default: () => ({}),
+    },
+  },
+  { _id: false }
+);
+
 const userSchema = new mongoose.Schema(
   {
     fullName: {
@@ -53,6 +117,18 @@ const userSchema = new mongoose.Schema(
     },
     socialLinks: {
       type: socialLinksSchema,
+      default: () => ({}),
+    },
+    skills: {
+      type: [String],
+      default: [],
+    },
+    interests: {
+      type: [String],
+      default: [],
+    },
+    roleDetails: {
+      type: roleDetailsSchema,
       default: () => ({}),
     },
     vcProfile: {
@@ -170,6 +246,12 @@ const userSchema = new mongoose.Schema(
 );
 
 userSchema.index({ email: 1 }, { unique: true });
+// Multikey indexes for arrays used in matching. These speed up queries like { role: X, skills: { $in: [...] } }
+userSchema.index({ skills: 1 });
+userSchema.index({ interests: 1 });
+// Compound indexes combining role with array fields are helpful for role-scoped matches.
+userSchema.index({ role: 1, skills: 1 });
+userSchema.index({ role: 1, interests: 1 });
 
 userSchema.set('toJSON', {
   transform: function (document, returnedObject) {

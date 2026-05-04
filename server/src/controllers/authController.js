@@ -4,9 +4,25 @@ const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
 const { signToken } = require('../services/jwtService');
 
+const normalizeStringList = (value) => {
+  if (!value) {
+    return [];
+  }
+
+  const items = Array.isArray(value) ? value : [value];
+
+  return [...new Set(items.map((item) => String(item).trim()).filter(Boolean))];
+};
+
 const buildRoleProfile = (role, body) => {
   if (role === 'VC') {
     return {
+      roleDetails: {
+        vc: {
+          firmName: body.firmName || '',
+          investmentFocus: normalizeStringList(body.investmentFocus || body.domainInterests),
+        },
+      },
       vcProfile: {
         domainInterests: body.domainInterests || [],
         investmentStage: body.investmentStage || [],
@@ -20,6 +36,13 @@ const buildRoleProfile = (role, body) => {
 
   if (role === 'Startup') {
     return {
+      roleDetails: {
+        startup: {
+          startupName: body.startupName || body.companyName || '',
+          domain: body.domain || body.industry || '',
+          fundingStage: body.fundingStage || body.startupStage || '',
+        },
+      },
       startupProfile: {
         companyName: body.companyName,
         startupStage: body.startupStage,
@@ -33,6 +56,12 @@ const buildRoleProfile = (role, body) => {
   }
 
   return {
+    roleDetails: {
+      student: {
+        education: body.education || [body.institutionName, body.program].filter(Boolean).join(' - '),
+        projects: normalizeStringList(body.projects || body.projectLinks),
+      },
+    },
     studentProfile: {
       institutionName: body.institutionName,
       program: body.program,
@@ -69,6 +98,8 @@ const register = asyncHandler(async (request, response) => {
     role,
     avatarUrl,
     bio,
+    skills: normalizeStringList(request.body.skills),
+    interests: normalizeStringList(request.body.interests),
     phone,
     location,
     socialLinks,
