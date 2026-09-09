@@ -22,65 +22,8 @@ const portfolioCompanies = [
   { name: 'NexusAI', domain: 'AI', stage: 'Series A', valuation: '$34M', allocation: 19 },
 ];
 
-const startupFeed = [
-  {
-    name: 'LedgerFlow',
-    domain: 'FinTech',
-    stage: 'Seed',
-    location: 'Bangalore, India',
-    traction: '23% MoM transaction growth',
-    summary: 'Embedded payments infrastructure for mid-market SaaS platforms.',
-    matchScore: 98,
-  },
-  {
-    name: 'StackRoute',
-    domain: 'SaaS',
-    stage: 'Series A',
-    location: 'San Francisco, USA',
-    traction: '4,200 active teams',
-    summary: 'Workflow automation for revenue operations teams.',
-    matchScore: 94,
-  },
-  {
-    name: 'PulseGrid',
-    domain: 'HealthTech',
-    stage: 'Pre-Seed',
-    location: 'London, UK',
-    traction: '3 hospital pilots secured',
-    summary: 'Remote care orchestration for chronic disease monitoring.',
-    matchScore: 91,
-  },
-  {
-    name: 'BrightLearn',
-    domain: 'EdTech',
-    stage: 'Seed',
-    location: 'Delhi, India',
-    traction: '110 schools onboarded',
-    summary: 'AI-guided student performance analytics for hybrid classrooms.',
-    matchScore: 88,
-  },
-  {
-    name: 'TerraLoop',
-    domain: 'Climate',
-    stage: 'MVP',
-    location: 'Berlin, Germany',
-    traction: 'Pilot contracts with 2 utilities',
-    summary: 'Carbon tracking and operational efficiency software for SMEs.',
-    matchScore: 86,
-  },
-  {
-    name: 'NexusAI',
-    domain: 'AI',
-    stage: 'Series A',
-    location: 'New York, USA',
-    traction: '38 enterprise logos',
-    summary: 'Model orchestration platform for regulated industries.',
-    matchScore: 96,
-  },
-];
-
 const getProfile = asyncHandler(async (request, response) => {
-  const user = await User.findById(request.user.id);
+  const user = await User.findById(request.user.id).select('-passwordHash -__v');
 
   if (!user) {
     throw new ApiError(404, 'User not found.');
@@ -104,6 +47,62 @@ const getVcDashboard = asyncHandler(async (request, response) => {
   }
 
   const selectedDomains = user.vcProfile?.domainInterests?.length ? user.vcProfile.domainInterests : ['FinTech', 'SaaS'];
+
+  // Fetch real registered startups from MongoDB
+  const startups = await User.find({ role: 'Startup', isActive: true })
+    .select('-passwordHash -__v -email')
+    .sort({ createdAt: -1 })
+    .lean();
+
+  const startupFeed = startups.map((startup) => {
+    const domain =
+      startup.startupProfile?.industry ||
+      startup.roleDetails?.startup?.domain ||
+      (Array.isArray(startup.interests) && startup.interests[0]) ||
+      'General';
+
+    const isDomainMatch = selectedDomains.some(
+      (sd) => sd && sd.toLowerCase() === domain.toLowerCase()
+    );
+
+    let matchScore = isDomainMatch ? 88 : 70;
+    if (startup.startupProfile?.pitchDeckUrl) matchScore += 5;
+    if (startup.isVerified) matchScore += 4;
+    if (startup.bio) matchScore += 3;
+    matchScore = Math.min(99, Math.max(50, matchScore));
+
+    const traction = startup.startupProfile?.teamSize
+      ? `${startup.startupProfile.teamSize} team member${startup.startupProfile.teamSize > 1 ? 's' : ''}`
+      : startup.isVerified
+        ? 'Verified startup'
+        : 'Active profile';
+
+    return {
+      id: startup._id.toString(),
+      _id: startup._id.toString(),
+      name:
+        startup.startupProfile?.companyName ||
+        startup.roleDetails?.startup?.startupName ||
+        startup.fullName,
+      domain,
+      stage:
+        startup.startupProfile?.startupStage ||
+        startup.roleDetails?.startup?.fundingStage ||
+        'Seed',
+      location: startup.location || 'Not specified',
+      traction,
+      summary: startup.bio || 'No company bio provided yet.',
+      matchScore,
+      pitchDeckUrl: startup.startupProfile?.pitchDeckUrl || '',
+      websiteUrl: startup.startupProfile?.websiteUrl || '',
+      foundingYear: startup.startupProfile?.foundingYear,
+      teamSize: startup.startupProfile?.teamSize,
+      skills: startup.skills || [],
+      interests: startup.interests || [],
+      isVerified: startup.isVerified || false,
+      createdAt: startup.createdAt,
+    };
+  });
 
   const filteredPortfolio = portfolioCompanies.filter((company) => selectedDomains.includes(company.domain));
   const sourcePortfolio = filteredPortfolio.length ? filteredPortfolio : portfolioCompanies;
@@ -144,3 +143,4 @@ module.exports = {
   getProfile,
   getVcDashboard,
 };
+

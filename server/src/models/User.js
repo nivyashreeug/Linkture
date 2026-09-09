@@ -245,7 +245,6 @@ const userSchema = new mongoose.Schema(
   }
 );
 
-userSchema.index({ email: 1 }, { unique: true });
 // Multikey indexes for arrays used in matching. These speed up queries like { role: X, skills: { $in: [...] } }
 userSchema.index({ skills: 1 });
 userSchema.index({ interests: 1 });
