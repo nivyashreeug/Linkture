@@ -1,5 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import api from '../../services/api';
+import ConnectionActions from '../../components/ConnectionActions';
+import NetworkHub from '../../components/NetworkHub';
 
 const roadmapSteps = [
 	{
@@ -73,6 +76,15 @@ const StudentDashboard = () => {
 	const { user, logout } = useAuth();
 	const [completedLessons, setCompletedLessons] = useState([1, 4]);
 
+	// Phase 2 Matching and Discovery State
+	const [matches, setMatches] = useState([]);
+	const [matchesLoading, setMatchesLoading] = useState(false);
+	const [startups, setStartups] = useState([]);
+	const [startupsLoading, setStartupsLoading] = useState(false);
+	const [searchQuery, setSearchQuery] = useState('');
+	const [page, setPage] = useState(1);
+	const [totalPages, setTotalPages] = useState(1);
+
 	const completionPercentage = useMemo(() => {
 		return Math.round((completedLessons.length / lessonLibrary.length) * 100);
 	}, [completedLessons]);
@@ -84,6 +96,43 @@ const StudentDashboard = () => {
 			current.includes(lessonId) ? current.filter((id) => id !== lessonId) : [...current, lessonId]
 		);
 	};
+
+	const fetchMatches = async () => {
+		try {
+			setMatchesLoading(true);
+			const res = await api.get('/match');
+			setMatches(res.data.matches || []);
+		} catch (err) {
+			console.error('Failed to fetch recommended matches:', err);
+		} finally {
+			setMatchesLoading(false);
+		}
+	};
+
+	const fetchStartups = async () => {
+		try {
+			setStartupsLoading(true);
+			const params = new URLSearchParams();
+			if (searchQuery.trim()) params.append('q', searchQuery.trim());
+			params.append('page', page);
+			params.append('limit', 4);
+
+			const res = await api.get(`/users/startups?${params.toString()}`);
+			setStartups(res.data.data?.startups || []);
+			setTotalPages(res.data.data?.pagination?.totalPages || 1);
+		} catch (err) {
+			console.error('Failed to fetch startups for student:', err);
+		} finally {
+			setStartupsLoading(false);
+		}
+	};
+
+	useEffect(() => {
+		if (user?.role === 'Student') {
+			fetchMatches();
+			fetchStartups();
+		}
+	}, [user, page, searchQuery]);
 
 	if (!user) {
 		return null;
@@ -98,7 +147,7 @@ const StudentDashboard = () => {
 							<p className="text-xs uppercase tracking-[0.3em] text-slate-400">Student Incubator</p>
 							<h1 className="mt-2 font-display text-3xl font-bold text-white">LMS Dashboard</h1>
 							<p className="mt-2 text-sm leading-6 text-slate-300">
-								Follow your startup curriculum, track progress, and move through each milestone with clarity.
+								Follow your startup curriculum, track progress, and network with active startup founders.
 							</p>
 						</div>
 
@@ -303,6 +352,166 @@ const StudentDashboard = () => {
 								</div>
 							</div>
 						</aside>
+					</div>
+
+					{/* Live Network & Requests */}
+					<NetworkHub title="Student Network & Connection Hub" />
+
+					{/* Recommended Startup Matches via /api/match */}
+					<div className="glass-panel rounded-[2rem] p-5 sm:p-6">
+						<div className="mb-5 flex items-center justify-between border-b border-white/10 pb-4">
+							<div>
+								<p className="text-xs uppercase tracking-[0.28em] text-teal-300">Matching Engine</p>
+								<h3 className="mt-1 text-xl font-semibold text-white">Recommended Startup Matches & Mentors</h3>
+							</div>
+							<span className="rounded-full bg-teal-400/10 px-3 py-1 text-xs font-semibold text-teal-200">
+								Live Match Score
+							</span>
+						</div>
+
+						{matchesLoading ? (
+							<p className="py-8 text-center text-xs text-slate-400">Loading complementary startup matches...</p>
+						) : matches.length === 0 ? (
+							<div className="rounded-2xl border border-dashed border-white/10 bg-white/5 p-6 text-center text-xs text-slate-400">
+								No new recommendations right now. Expand your skills and interests to discover more startups.
+							</div>
+						) : (
+							<div className="grid gap-4 md:grid-cols-2">
+								{matches.map((match) => (
+									<div
+										key={match.id || match._id}
+										className="flex flex-col justify-between rounded-2xl border border-white/10 bg-slate-950/40 p-5"
+									>
+										<div>
+											<div className="flex items-start justify-between gap-3">
+												<div>
+													<p className="text-xs uppercase tracking-[0.28em] text-gold">{match.domain || 'Startup'}</p>
+													<h4 className="mt-1 text-lg font-semibold text-white">{match.name}</h4>
+												</div>
+												<span className="rounded-full bg-teal-400/15 px-2.5 py-1 text-xs font-bold text-teal-200">
+													{match.matchScore} pts
+												</span>
+											</div>
+											<p className="mt-2 text-xs text-slate-300 line-clamp-2">{match.bio || 'Early stage startup seeking student collaborators.'}</p>
+											{match.sharedSkills && match.sharedSkills.length ? (
+												<div className="mt-3 flex flex-wrap gap-1">
+													{match.sharedSkills.map((sk) => (
+														<span key={sk} className="rounded bg-teal-400/10 px-2 py-0.5 text-[0.65rem] text-teal-300">
+															+ {sk}
+														</span>
+													))}
+												</div>
+											) : null}
+										</div>
+										<div className="mt-4 border-t border-white/10 pt-3">
+											<ConnectionActions
+												targetUserId={match.id || match._id}
+												initialStatus={match.connectionStatus || 'none'}
+												initialConnectionId={match.connectionId}
+											/>
+										</div>
+									</div>
+								))}
+							</div>
+						)}
+					</div>
+
+					{/* Live Startup Discovery */}
+					<div className="glass-panel rounded-[2rem] p-5 sm:p-6">
+						<div className="mb-5 flex flex-col gap-4 border-b border-white/10 pb-4">
+							<div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+								<div>
+									<p className="text-xs uppercase tracking-[0.28em] text-rose-300">Discovery Engine</p>
+									<h3 className="mt-1 text-xl font-semibold text-white">Browse Active Startups & Founders</h3>
+								</div>
+								<p className="text-xs text-slate-400">Page {page} of {totalPages}</p>
+							</div>
+
+							<div>
+								<input
+									type="text"
+									value={searchQuery}
+									onChange={(e) => {
+										setSearchQuery(e.target.value);
+										setPage(1);
+									}}
+									placeholder="Search startups by company name, industry, founder, skills..."
+									className="input-field text-sm"
+								/>
+							</div>
+						</div>
+
+						{startupsLoading ? (
+							<p className="py-8 text-center text-xs text-slate-400">Loading startup directory...</p>
+						) : startups.length === 0 ? (
+							<div className="rounded-2xl border border-dashed border-white/10 bg-white/5 p-8 text-center text-xs text-slate-400">
+								No startups found. Try adjusting your search keywords.
+							</div>
+						) : (
+							<div className="grid gap-4 md:grid-cols-2">
+								{startups.map((startup) => (
+									<div
+										key={startup.id || startup._id}
+										className="flex flex-col justify-between rounded-2xl border border-white/10 bg-slate-950/40 p-5"
+									>
+										<div>
+											<div className="flex items-start justify-between gap-3">
+												<div>
+													<p className="text-xs uppercase tracking-[0.28em] text-teal-300">{startup.domain}</p>
+													<h4 className="mt-1 text-lg font-semibold text-white">{startup.name}</h4>
+												</div>
+												<span className="rounded-full bg-white/10 px-2.5 py-1 text-xs text-slate-200">
+													{startup.stage}
+												</span>
+											</div>
+											<p className="mt-2 text-xs text-slate-300 line-clamp-2">{startup.summary}</p>
+
+											{startup.skills && startup.skills.length ? (
+												<div className="mt-3 flex flex-wrap gap-1.5">
+													{startup.skills.slice(0, 3).map((sk) => (
+														<span key={sk} className="rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-[0.65rem] text-slate-200">
+															{sk}
+														</span>
+													))}
+												</div>
+											) : null}
+										</div>
+
+										<div className="mt-4 border-t border-white/10 pt-3">
+											<ConnectionActions
+												targetUserId={startup.id || startup._id}
+												initialStatus={startup.connectionStatus || 'none'}
+												initialConnectionId={startup.connectionId}
+											/>
+										</div>
+									</div>
+								))}
+							</div>
+						)}
+
+						{totalPages > 1 ? (
+							<div className="mt-6 flex items-center justify-between border-t border-white/10 pt-4 text-xs text-slate-400">
+								<span>Page {page} of {totalPages}</span>
+								<div className="flex gap-2">
+									<button
+										type="button"
+										onClick={() => setPage((p) => Math.max(1, p - 1))}
+										disabled={page === 1}
+										className="rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 hover:bg-white/10 disabled:opacity-40"
+									>
+										Previous
+									</button>
+									<button
+										type="button"
+										onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+										disabled={page === totalPages}
+										className="rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 hover:bg-white/10 disabled:opacity-40"
+									>
+										Next
+									</button>
+								</div>
+							</div>
+						) : null}
 					</div>
 				</section>
 			</div>

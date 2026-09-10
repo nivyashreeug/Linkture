@@ -139,8 +139,252 @@ const getVcDashboard = asyncHandler(async (request, response) => {
   });
 });
 
+const Connection = require('../models/Connection');
+
+const getStartups = asyncHandler(async (request, response) => {
+  const { q, industry, domain, stage, fundingStage, location } = request.query;
+  const page = Math.max(1, parseInt(request.query.page, 10) || 1);
+  const limit = Math.min(50, Math.max(1, parseInt(request.query.limit, 10) || 10));
+
+  const mongoQuery = { role: 'Startup', isActive: true };
+  const andConditions = [];
+
+  const targetDomain = industry || domain;
+  if (targetDomain && String(targetDomain).trim()) {
+    const domainRegex = new RegExp(`^${String(targetDomain).trim()}$`, 'i');
+    andConditions.push({
+      $or: [
+        { 'startupProfile.industry': domainRegex },
+        { 'roleDetails.startup.domain': domainRegex },
+        { interests: domainRegex },
+      ],
+    });
+  }
+
+  const targetStage = stage || fundingStage;
+  if (targetStage && String(targetStage).trim()) {
+    const stageRegex = new RegExp(`^${String(targetStage).trim()}$`, 'i');
+    andConditions.push({
+      $or: [
+        { 'startupProfile.startupStage': stageRegex },
+        { 'roleDetails.startup.fundingStage': stageRegex },
+      ],
+    });
+  }
+
+  if (location && String(location).trim()) {
+    andConditions.push({
+      location: new RegExp(String(location).trim(), 'i'),
+    });
+  }
+
+  if (q && String(q).trim()) {
+    const searchRegex = new RegExp(String(q).trim(), 'i');
+    andConditions.push({
+      $or: [
+        { fullName: searchRegex },
+        { 'startupProfile.companyName': searchRegex },
+        { 'roleDetails.startup.startupName': searchRegex },
+        { 'startupProfile.industry': searchRegex },
+        { 'roleDetails.startup.domain': searchRegex },
+        { bio: searchRegex },
+        { location: searchRegex },
+        { skills: searchRegex },
+        { interests: searchRegex },
+      ],
+    });
+  }
+
+  if (andConditions.length > 0) {
+    mongoQuery.$and = andConditions;
+  }
+
+  const total = await User.countDocuments(mongoQuery);
+  const startups = await User.find(mongoQuery)
+    .select('-passwordHash -__v -email')
+    .sort({ createdAt: -1 })
+    .skip((page - 1) * limit)
+    .limit(limit)
+    .lean();
+
+  let connectionMap = new Map();
+  if (request.user?.id) {
+    const userConnections = await Connection.find({
+      $or: [{ requester: request.user.id }, { recipient: request.user.id }],
+    }).select('requester recipient status');
+
+    userConnections.forEach((conn) => {
+      const isRequester = String(conn.requester) === String(request.user.id);
+      const otherId = isRequester ? String(conn.recipient) : String(conn.requester);
+      let status = conn.status;
+      if (conn.status === 'pending') {
+        status = isRequester ? 'pending_sent' : 'pending_received';
+      }
+      connectionMap.set(otherId, { status, connectionId: conn._id });
+    });
+  }
+
+  const formattedStartups = startups.map((s) => {
+    const conn = connectionMap.get(s._id.toString()) || { status: 'none', connectionId: null };
+    return {
+      id: s._id.toString(),
+      _id: s._id.toString(),
+      name: s.startupProfile?.companyName || s.roleDetails?.startup?.startupName || s.fullName,
+      domain: s.startupProfile?.industry || s.roleDetails?.startup?.domain || (Array.isArray(s.interests) && s.interests[0]) || 'General',
+      stage: s.startupProfile?.startupStage || s.roleDetails?.startup?.fundingStage || 'Seed',
+      location: s.location || 'Not specified',
+      summary: s.bio || 'No company bio provided yet.',
+      pitchDeckUrl: s.startupProfile?.pitchDeckUrl || '',
+      websiteUrl: s.startupProfile?.websiteUrl || '',
+      teamSize: s.startupProfile?.teamSize,
+      foundingYear: s.startupProfile?.foundingYear,
+      skills: s.skills || [],
+      interests: s.interests || [],
+      isVerified: s.isVerified || false,
+      connectionStatus: conn.status,
+      connectionId: conn.connectionId,
+      createdAt: s.createdAt,
+    };
+  });
+
+  response.json({
+    success: true,
+    count: formattedStartups.length,
+    data: {
+      startups: formattedStartups,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit) || 1,
+      },
+    },
+  });
+});
+
+const getInvestors = asyncHandler(async (request, response) => {
+  const { q, domain, stage, investmentStage, location } = request.query;
+  const page = Math.max(1, parseInt(request.query.page, 10) || 1);
+  const limit = Math.min(50, Math.max(1, parseInt(request.query.limit, 10) || 10));
+
+  const mongoQuery = { role: 'VC', isActive: true };
+  const andConditions = [];
+
+  const targetDomain = domain;
+  if (targetDomain && String(targetDomain).trim()) {
+    const domainRegex = new RegExp(`^${String(targetDomain).trim()}$`, 'i');
+    andConditions.push({
+      $or: [
+        { 'vcProfile.domainInterests': domainRegex },
+        { 'roleDetails.vc.investmentFocus': domainRegex },
+        { interests: domainRegex },
+      ],
+    });
+  }
+
+  const targetStage = stage || investmentStage;
+  if (targetStage && String(targetStage).trim()) {
+    const stageRegex = new RegExp(`^${String(targetStage).trim()}$`, 'i');
+    andConditions.push({
+      'vcProfile.investmentStage': stageRegex,
+    });
+  }
+
+  if (location && String(location).trim()) {
+    andConditions.push({
+      location: new RegExp(String(location).trim(), 'i'),
+    });
+  }
+
+  if (q && String(q).trim()) {
+    const searchRegex = new RegExp(String(q).trim(), 'i');
+    andConditions.push({
+      $or: [
+        { fullName: searchRegex },
+        { 'roleDetails.vc.firmName': searchRegex },
+        { 'vcProfile.domainInterests': searchRegex },
+        { 'roleDetails.vc.investmentFocus': searchRegex },
+        { bio: searchRegex },
+        { location: searchRegex },
+        { skills: searchRegex },
+        { interests: searchRegex },
+      ],
+    });
+  }
+
+  if (andConditions.length > 0) {
+    mongoQuery.$and = andConditions;
+  }
+
+  const total = await User.countDocuments(mongoQuery);
+  const investors = await User.find(mongoQuery)
+    .select('-passwordHash -__v -email')
+    .sort({ createdAt: -1 })
+    .skip((page - 1) * limit)
+    .limit(limit)
+    .lean();
+
+  let connectionMap = new Map();
+  if (request.user?.id) {
+    const userConnections = await Connection.find({
+      $or: [{ requester: request.user.id }, { recipient: request.user.id }],
+    }).select('requester recipient status');
+
+    userConnections.forEach((conn) => {
+      const isRequester = String(conn.requester) === String(request.user.id);
+      const otherId = isRequester ? String(conn.recipient) : String(conn.requester);
+      let status = conn.status;
+      if (conn.status === 'pending') {
+        status = isRequester ? 'pending_sent' : 'pending_received';
+      }
+      connectionMap.set(otherId, { status, connectionId: conn._id });
+    });
+  }
+
+  const formattedInvestors = investors.map((inv) => {
+    const conn = connectionMap.get(inv._id.toString()) || { status: 'none', connectionId: null };
+    return {
+      id: inv._id.toString(),
+      _id: inv._id.toString(),
+      name: inv.roleDetails?.vc?.firmName || inv.fullName,
+      firmName: inv.roleDetails?.vc?.firmName || 'Independent Investor',
+      fullName: inv.fullName,
+      domains: inv.vcProfile?.domainInterests || inv.roleDetails?.vc?.investmentFocus || inv.interests || [],
+      investmentStage: inv.vcProfile?.investmentStage || [],
+      location: inv.location || 'Not specified',
+      bio: inv.bio || 'No investor bio provided yet.',
+      ticketSizeMin: inv.vcProfile?.ticketSizeMin,
+      ticketSizeMax: inv.vcProfile?.ticketSizeMax,
+      preferredRegions: inv.vcProfile?.preferredRegions || [],
+      portfolioCount: inv.vcProfile?.portfolioCount || 0,
+      skills: inv.skills || [],
+      interests: inv.interests || [],
+      isVerified: inv.isVerified || false,
+      connectionStatus: conn.status,
+      connectionId: conn.connectionId,
+      createdAt: inv.createdAt,
+    };
+  });
+
+  response.json({
+    success: true,
+    count: formattedInvestors.length,
+    data: {
+      investors: formattedInvestors,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit) || 1,
+      },
+    },
+  });
+});
+
 module.exports = {
   getProfile,
   getVcDashboard,
+  getStartups,
+  getInvestors,
 };
 

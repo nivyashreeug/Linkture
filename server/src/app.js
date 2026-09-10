@@ -8,6 +8,7 @@ const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
 const profileRoutes = require('./routes/profileRoutes');
 const matchRoutes = require('./routes/matchRoutes');
+const connectionRoutes = require('./routes/connectionRoutes');
 
 const app = express();
 
@@ -38,7 +39,8 @@ app.get('/', (request, response) => {
       auth: '/api/auth',
       users: '/api/users',
       profile: '/api/profile',
-      match: '/api/match'
+      match: '/api/match',
+      connections: '/api/connections',
     }
   });
 });
@@ -51,6 +53,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/match', matchRoutes);
+app.use('/api/connections', connectionRoutes);
 
 app.use((request, response, next) => {
   next(new ApiError(404, `Route not found: ${request.originalUrl}`));

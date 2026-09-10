@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const Connection = require('../models/Connection');
 
 const MATCH_RULES = {
   Student: ['Startup'],
@@ -51,9 +52,24 @@ const getMatchesForUser = async (currentUser) => {
     return [];
   }
 
-  // fetch only the necessary fields and exclude sensitive data
+  // Find active and pending connection user IDs to exclude from recommendation feed
+  const activeConnections = await Connection.find({
+    $or: [{ requester: currentUser._id }, { recipient: currentUser._id }],
+    status: { $in: ['accepted', 'pending'] },
+  }).select('requester recipient');
+
+  const excludedIds = [currentUser._id];
+  activeConnections.forEach((conn) => {
+    if (String(conn.requester) === String(currentUser._id)) {
+      excludedIds.push(conn.recipient);
+    } else {
+      excludedIds.push(conn.requester);
+    }
+  });
+
+  // fetch complementary role candidates excluding current user & existing connections
   const candidates = await User.find({
-    _id: { $ne: currentUser._id },
+    _id: { $nin: excludedIds },
     role: { $in: allowedRoles },
     isActive: true,
   }).select('-passwordHash -__v -email');

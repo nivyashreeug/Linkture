@@ -1,5 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import api from '../../services/api';
+import ConnectionActions from '../../components/ConnectionActions';
+import NetworkHub from '../../components/NetworkHub';
 
 const sampleSuggestions = [
 	'Summarize the pitch in one sentence.',
@@ -34,7 +37,52 @@ const StartupDashboard = () => {
 	const [analysis, setAnalysis] = useState(null);
 	const [notification, setNotification] = useState('');
 	const [analyzing, setAnalyzing] = useState(false);
-	const [sending, setSending] = useState(false);
+
+	// Phase 2 Live Discovery & Matching State
+	const [matches, setMatches] = useState([]);
+	const [matchesLoading, setMatchesLoading] = useState(false);
+	const [investors, setInvestors] = useState([]);
+	const [investorsLoading, setInvestorsLoading] = useState(false);
+	const [searchQuery, setSearchQuery] = useState('');
+	const [investorPage, setInvestorPage] = useState(1);
+	const [totalInvestorPages, setTotalInvestorPages] = useState(1);
+
+	const fetchMatches = async () => {
+		try {
+			setMatchesLoading(true);
+			const res = await api.get('/match');
+			setMatches(res.data.matches || []);
+		} catch (err) {
+			console.error('Failed to fetch recommendations:', err);
+		} finally {
+			setMatchesLoading(false);
+		}
+	};
+
+	const fetchInvestors = async () => {
+		try {
+			setInvestorsLoading(true);
+			const params = new URLSearchParams();
+			if (searchQuery.trim()) params.append('q', searchQuery.trim());
+			params.append('page', investorPage);
+			params.append('limit', 4);
+
+			const res = await api.get(`/users/investors?${params.toString()}`);
+			setInvestors(res.data.data?.investors || []);
+			setTotalInvestorPages(res.data.data?.pagination?.totalPages || 1);
+		} catch (err) {
+			console.error('Failed to fetch investors:', err);
+		} finally {
+			setInvestorsLoading(false);
+		}
+	};
+
+	useEffect(() => {
+		if (user?.role === 'Startup') {
+			fetchMatches();
+			fetchInvestors();
+		}
+	}, [user, investorPage, searchQuery]);
 
 	const targetDomain = useMemo(() => {
 		const startupIndustry = user?.startupProfile?.industry?.trim();
@@ -110,22 +158,6 @@ const StartupDashboard = () => {
 
 	const handleQuickPrompt = (prompt) => {
 		setChatInput(prompt);
-	};
-
-	const connectWithInvestor = () => {
-		setSending(true);
-		setNotification(`Notification sent to VCs investing in ${targetDomain}.`);
-
-		window.setTimeout(() => {
-			setMessages((current) => [
-				...current,
-				{
-					role: 'assistant',
-					text: `Your investor outreach request has been shared with VCs who invest in ${targetDomain}. Expect prioritized follow-up from the most relevant funds.`,
-				},
-			]);
-			setSending(false);
-		}, 800);
 	};
 
 	if (!user) {
@@ -240,12 +272,12 @@ const StartupDashboard = () => {
 										<div className="rounded-[1.5rem] border border-white/10 bg-slate-950/55 p-5">
 											<div className="flex items-center justify-between gap-3">
 												<div>
-													<p className="text-xs uppercase tracking-[0.28em] text-gold">VC notification</p>
-													<p className="mt-1 text-sm text-slate-300">Send an alert to investors in your domain.</p>
+													<p className="text-xs uppercase tracking-[0.28em] text-gold">Target Domain</p>
+													<p className="mt-1 text-sm text-slate-300">Connect directly with active funds in {targetDomain}.</p>
 												</div>
-												<button className="primary-button" type="button" onClick={connectWithInvestor} disabled={sending}>
-													{sending ? 'Sending...' : 'Connect with Investor'}
-												</button>
+												<a href="#investor-discovery" className="primary-button text-xs py-2 px-4">
+													Browse Investors ↓
+												</a>
 											</div>
 										</div>
 									</div>
@@ -271,7 +303,7 @@ const StartupDashboard = () => {
 									</div>
 								) : (
 									<div className="rounded-[1.5rem] border border-dashed border-white/10 bg-white/5 p-6 text-sm text-slate-300">
-										No analysis yet. Upload a PDF pitch deck and run the mock analyzer.
+										Upload a PDF pitch deck and run the pitch analyzer.
 									</div>
 								)}
 							</div>
@@ -306,6 +338,166 @@ const StartupDashboard = () => {
 								</div>
 							</div>
 						</div>
+					</div>
+
+					{/* Live Network & Requests */}
+					<NetworkHub title="Startup Network & Outreach Requests" />
+
+					{/* Recommended Investor Matches via /api/match */}
+					<div className="glass-panel rounded-[2rem] p-5 sm:p-6">
+						<div className="mb-5 flex items-center justify-between border-b border-white/10 pb-4">
+							<div>
+								<p className="text-xs uppercase tracking-[0.28em] text-teal-300">AI Matching Engine</p>
+								<h3 className="mt-1 text-xl font-semibold text-white">Recommended Investor Matches</h3>
+							</div>
+							<span className="rounded-full bg-teal-400/10 px-3 py-1 text-xs font-semibold text-teal-200">
+								Live Match Score
+							</span>
+						</div>
+
+						{matchesLoading ? (
+							<p className="py-8 text-center text-xs text-slate-400">Loading complementary investor matches...</p>
+						) : matches.length === 0 ? (
+							<div className="rounded-2xl border border-dashed border-white/10 bg-white/5 p-6 text-center text-xs text-slate-400">
+								No new recommendations right now. Expand your skills and interests to discover more investors.
+							</div>
+						) : (
+							<div className="grid gap-4 md:grid-cols-2">
+								{matches.map((match) => (
+									<div
+										key={match.id || match._id}
+										className="flex flex-col justify-between rounded-2xl border border-white/10 bg-slate-950/40 p-5"
+									>
+										<div>
+											<div className="flex items-start justify-between gap-3">
+												<div>
+													<p className="text-xs uppercase tracking-[0.28em] text-gold">{match.domain || 'VC Fund'}</p>
+													<h4 className="mt-1 text-lg font-semibold text-white">{match.name}</h4>
+												</div>
+												<span className="rounded-full bg-teal-400/15 px-2.5 py-1 text-xs font-bold text-teal-200">
+													{match.matchScore} pts
+												</span>
+											</div>
+											<p className="mt-2 text-xs text-slate-300 line-clamp-2">{match.bio || 'Investor looking for high-growth startups.'}</p>
+											{match.sharedSkills && match.sharedSkills.length ? (
+												<div className="mt-3 flex flex-wrap gap-1">
+													{match.sharedSkills.map((sk) => (
+														<span key={sk} className="rounded bg-teal-400/10 px-2 py-0.5 text-[0.65rem] text-teal-300">
+															+ {sk}
+														</span>
+													))}
+												</div>
+											) : null}
+										</div>
+										<div className="mt-4 border-t border-white/10 pt-3">
+											<ConnectionActions
+												targetUserId={match.id || match._id}
+												initialStatus={match.connectionStatus || 'none'}
+												initialConnectionId={match.connectionId}
+											/>
+										</div>
+									</div>
+								))}
+							</div>
+						)}
+					</div>
+
+					{/* Live Investor Discovery */}
+					<div id="investor-discovery" className="glass-panel rounded-[2rem] p-5 sm:p-6">
+						<div className="mb-5 flex flex-col gap-4 border-b border-white/10 pb-4">
+							<div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+								<div>
+									<p className="text-xs uppercase tracking-[0.28em] text-rose-300">Discovery Engine</p>
+									<h3 className="mt-1 text-xl font-semibold text-white">Active Investors & Venture Funds</h3>
+								</div>
+								<p className="text-xs text-slate-400">Page {investorPage} of {totalInvestorPages}</p>
+							</div>
+
+							<div>
+								<input
+									type="text"
+									value={searchQuery}
+									onChange={(e) => {
+										setSearchQuery(e.target.value);
+										setInvestorPage(1);
+									}}
+									placeholder="Search investors by fund name, partner, domain focus, or location..."
+									className="input-field text-sm"
+								/>
+							</div>
+						</div>
+
+						{investorsLoading ? (
+							<p className="py-8 text-center text-xs text-slate-400">Loading active investor directory...</p>
+						) : investors.length === 0 ? (
+							<div className="rounded-2xl border border-dashed border-white/10 bg-white/5 p-8 text-center text-xs text-slate-400">
+								No investors found. Try adjusting your search keywords.
+							</div>
+						) : (
+							<div className="grid gap-4 md:grid-cols-2">
+								{investors.map((inv) => (
+									<div
+										key={inv.id || inv._id}
+										className="flex flex-col justify-between rounded-2xl border border-white/10 bg-slate-950/40 p-5"
+									>
+										<div>
+											<div className="flex items-start justify-between gap-3">
+												<div>
+													<p className="text-xs uppercase tracking-[0.28em] text-slate-400">{inv.firmName}</p>
+													<h4 className="mt-1 text-lg font-semibold text-white">{inv.fullName}</h4>
+												</div>
+												<span className="rounded-full bg-white/10 px-2.5 py-1 text-xs text-slate-200">
+													{inv.location || 'Remote'}
+												</span>
+											</div>
+											<p className="mt-2 text-xs text-slate-300 line-clamp-2">{inv.bio}</p>
+
+											{inv.domains && inv.domains.length ? (
+												<div className="mt-3 flex flex-wrap gap-1.5">
+													{inv.domains.map((dom) => (
+														<span key={dom} className="rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-[0.65rem] text-slate-200">
+															{dom}
+														</span>
+													))}
+												</div>
+											) : null}
+										</div>
+
+										<div className="mt-4 border-t border-white/10 pt-3">
+											<ConnectionActions
+												targetUserId={inv.id || inv._id}
+												initialStatus={inv.connectionStatus || 'none'}
+												initialConnectionId={inv.connectionId}
+											/>
+										</div>
+									</div>
+								))}
+							</div>
+						)}
+
+						{totalInvestorPages > 1 ? (
+							<div className="mt-6 flex items-center justify-between border-t border-white/10 pt-4 text-xs text-slate-400">
+								<span>Page {investorPage} of {totalInvestorPages}</span>
+								<div className="flex gap-2">
+									<button
+										type="button"
+										onClick={() => setInvestorPage((p) => Math.max(1, p - 1))}
+										disabled={investorPage === 1}
+										className="rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 hover:bg-white/10 disabled:opacity-40"
+									>
+										Previous
+									</button>
+									<button
+										type="button"
+										onClick={() => setInvestorPage((p) => Math.min(totalInvestorPages, p + 1))}
+										disabled={investorPage === totalInvestorPages}
+										className="rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 hover:bg-white/10 disabled:opacity-40"
+									>
+										Next
+									</button>
+								</div>
+							</div>
+						) : null}
 					</div>
 				</section>
 			</div>
