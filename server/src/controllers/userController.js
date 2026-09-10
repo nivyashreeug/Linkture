@@ -141,17 +141,31 @@ const getVcDashboard = asyncHandler(async (request, response) => {
 
 const Connection = require('../models/Connection');
 
+const escapeRegex = (string) => {
+  if (typeof string !== 'string') {
+    return '';
+  }
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+};
+
+const sanitizePagination = (queryPage, queryLimit) => {
+  const parsedPage = parseInt(queryPage, 10);
+  const page = Number.isInteger(parsedPage) && parsedPage > 0 ? Math.min(parsedPage, 10000) : 1;
+  const parsedLimit = parseInt(queryLimit, 10);
+  const limit = Number.isInteger(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, 50) : 10;
+  return { page, limit };
+};
+
 const getStartups = asyncHandler(async (request, response) => {
   const { q, industry, domain, stage, fundingStage, location } = request.query;
-  const page = Math.max(1, parseInt(request.query.page, 10) || 1);
-  const limit = Math.min(50, Math.max(1, parseInt(request.query.limit, 10) || 10));
+  const { page, limit } = sanitizePagination(request.query.page, request.query.limit);
 
   const mongoQuery = { role: 'Startup', isActive: true };
   const andConditions = [];
 
   const targetDomain = industry || domain;
-  if (targetDomain && String(targetDomain).trim()) {
-    const domainRegex = new RegExp(`^${String(targetDomain).trim()}$`, 'i');
+  if (targetDomain && typeof targetDomain === 'string' && targetDomain.trim()) {
+    const domainRegex = new RegExp(`^${escapeRegex(targetDomain.trim())}$`, 'i');
     andConditions.push({
       $or: [
         { 'startupProfile.industry': domainRegex },
@@ -162,8 +176,8 @@ const getStartups = asyncHandler(async (request, response) => {
   }
 
   const targetStage = stage || fundingStage;
-  if (targetStage && String(targetStage).trim()) {
-    const stageRegex = new RegExp(`^${String(targetStage).trim()}$`, 'i');
+  if (targetStage && typeof targetStage === 'string' && targetStage.trim()) {
+    const stageRegex = new RegExp(`^${escapeRegex(targetStage.trim())}$`, 'i');
     andConditions.push({
       $or: [
         { 'startupProfile.startupStage': stageRegex },
@@ -172,14 +186,14 @@ const getStartups = asyncHandler(async (request, response) => {
     });
   }
 
-  if (location && String(location).trim()) {
+  if (location && typeof location === 'string' && location.trim()) {
     andConditions.push({
-      location: new RegExp(String(location).trim(), 'i'),
+      location: new RegExp(escapeRegex(location.trim()), 'i'),
     });
   }
 
-  if (q && String(q).trim()) {
-    const searchRegex = new RegExp(String(q).trim(), 'i');
+  if (q && typeof q === 'string' && q.trim()) {
+    const searchRegex = new RegExp(escapeRegex(q.trim()), 'i');
     andConditions.push({
       $or: [
         { fullName: searchRegex },
@@ -270,15 +284,14 @@ const getStartups = asyncHandler(async (request, response) => {
 
 const getInvestors = asyncHandler(async (request, response) => {
   const { q, domain, stage, investmentStage, location } = request.query;
-  const page = Math.max(1, parseInt(request.query.page, 10) || 1);
-  const limit = Math.min(50, Math.max(1, parseInt(request.query.limit, 10) || 10));
+  const { page, limit } = sanitizePagination(request.query.page, request.query.limit);
 
   const mongoQuery = { role: 'VC', isActive: true };
   const andConditions = [];
 
   const targetDomain = domain;
-  if (targetDomain && String(targetDomain).trim()) {
-    const domainRegex = new RegExp(`^${String(targetDomain).trim()}$`, 'i');
+  if (targetDomain && typeof targetDomain === 'string' && targetDomain.trim()) {
+    const domainRegex = new RegExp(`^${escapeRegex(targetDomain.trim())}$`, 'i');
     andConditions.push({
       $or: [
         { 'vcProfile.domainInterests': domainRegex },
@@ -289,21 +302,21 @@ const getInvestors = asyncHandler(async (request, response) => {
   }
 
   const targetStage = stage || investmentStage;
-  if (targetStage && String(targetStage).trim()) {
-    const stageRegex = new RegExp(`^${String(targetStage).trim()}$`, 'i');
+  if (targetStage && typeof targetStage === 'string' && targetStage.trim()) {
+    const stageRegex = new RegExp(`^${escapeRegex(targetStage.trim())}$`, 'i');
     andConditions.push({
       'vcProfile.investmentStage': stageRegex,
     });
   }
 
-  if (location && String(location).trim()) {
+  if (location && typeof location === 'string' && location.trim()) {
     andConditions.push({
-      location: new RegExp(String(location).trim(), 'i'),
+      location: new RegExp(escapeRegex(location.trim()), 'i'),
     });
   }
 
-  if (q && String(q).trim()) {
-    const searchRegex = new RegExp(String(q).trim(), 'i');
+  if (q && typeof q === 'string' && q.trim()) {
+    const searchRegex = new RegExp(escapeRegex(q.trim()), 'i');
     andConditions.push({
       $or: [
         { fullName: searchRegex },

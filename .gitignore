@@ -3,6 +3,8 @@ node_modules
 .env.*
 client/dist
 server/dist
+server/uploads/
+uploads/
 coverage
 .DS_Store
 npm-debug.log*

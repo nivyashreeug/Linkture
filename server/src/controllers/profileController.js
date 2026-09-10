@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const User = require('../models/User');
 const ApiError = require('../utils/ApiError');
 const asyncHandler = require('../utils/asyncHandler');
@@ -194,8 +195,8 @@ const updateProfile = asyncHandler(async (request, response) => {
 const getProfile = asyncHandler(async (request, response) => {
   const targetId = request.params.id || request.user?.id;
 
-  if (!targetId) {
-    throw new ApiError(400, 'User ID is required.');
+  if (!targetId || !mongoose.Types.ObjectId.isValid(targetId)) {
+    throw new ApiError(400, 'Invalid user ID format.');
   }
 
   const user = await User.findById(targetId).select('-passwordHash -__v -email');

@@ -118,8 +118,15 @@ const uploadPitchDeck = asyncHandler(async (req, res) => {
   });
 });
 
+const mongoose = require('mongoose');
+
 const getPitchDeck = asyncHandler(async (req, res) => {
   const targetId = req.query.userId || req.user.id;
+
+  if (!targetId || !mongoose.Types.ObjectId.isValid(targetId)) {
+    throw new ApiError(400, 'Invalid user ID.');
+  }
+
   const user = await User.findById(targetId);
 
   if (!user) {
@@ -152,11 +159,11 @@ const deletePitchDeck = asyncHandler(async (req, res) => {
     throw new ApiError(404, 'User not found.');
   }
 
-  // Delete physical file
+  // Delete physical file safely
   if (user.startupProfile?.pitchDeck?.fileName) {
     const fileName = path.basename(user.startupProfile.pitchDeck.fileName);
-    const filePath = path.join(UPLOADS_DIR, fileName);
-    if (fs.existsSync(filePath)) {
+    const filePath = path.resolve(UPLOADS_DIR, fileName);
+    if (filePath.startsWith(UPLOADS_DIR) && fs.existsSync(filePath)) {
       try {
         fs.unlinkSync(filePath);
       } catch (err) {
@@ -184,8 +191,24 @@ const deletePitchDeck = asyncHandler(async (req, res) => {
 
 const downloadPitchDeck = asyncHandler(async (req, res) => {
   const { fileName } = req.params;
+
+  if (!fileName || typeof fileName !== 'string') {
+    throw new ApiError(400, 'Filename parameter is required.');
+  }
+
   const safeName = path.basename(fileName);
-  const filePath = path.join(UPLOADS_DIR, safeName);
+
+  // Validate filename structure and extension
+  if (!safeName.toLowerCase().endsWith('.pdf') || !/^[a-zA-Z0-9_\-.]+$/.test(safeName)) {
+    throw new ApiError(400, 'Invalid pitch deck filename.');
+  }
+
+  const filePath = path.resolve(UPLOADS_DIR, safeName);
+
+  // Strict path containment check
+  if (!filePath.startsWith(UPLOADS_DIR)) {
+    throw new ApiError(403, 'Access denied: Invalid file path.');
+  }
 
   if (!fs.existsSync(filePath)) {
     throw new ApiError(404, 'Pitch deck file not found.');
