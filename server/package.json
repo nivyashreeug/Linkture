@@ -18,7 +18,8 @@
     "joi": "^17.9.2",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.9.5",
-    "morgan": "^1.10.0"
+    "morgan": "^1.10.0",
+    "multer": "^2.3.0"
   },
   "devDependencies": {
     "mongodb-memory-server": "^11.1.0",

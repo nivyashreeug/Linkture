@@ -132,6 +132,10 @@ const userSchema = new mongoose.Schema(
       default: () => ({}),
     },
     vcProfile: {
+      firmName: {
+        type: String,
+        trim: true,
+      },
       domainInterests: {
         type: [String],
         default: undefined,
@@ -141,6 +145,10 @@ const userSchema = new mongoose.Schema(
           },
           message: 'VC users must provide at least one domain interest.',
         },
+      },
+      investmentFocus: {
+        type: [String],
+        default: [],
       },
       investmentStage: {
         type: [String],
@@ -169,6 +177,10 @@ const userSchema = new mongoose.Schema(
         type: String,
         trim: true,
       },
+      tagline: {
+        type: String,
+        trim: true,
+      },
       startupStage: {
         type: String,
         enum: ['Idea', 'MVP', 'Pre-Seed', 'Seed', 'Series A', 'Series B+'],
@@ -178,10 +190,18 @@ const userSchema = new mongoose.Schema(
         trim: true,
         validate: {
           validator: function (value) {
-            return this.role !== 'Startup' || Boolean(value);
+            return this.role !== 'Startup' || !this.isNew || Boolean(value) || Boolean(this.startupProfile?.pitchDeck?.filePath);
           },
           message: 'Startup users must provide a pitch deck URL.',
         },
+      },
+      pitchDeck: {
+        originalName: { type: String, trim: true },
+        fileName: { type: String, trim: true },
+        filePath: { type: String, trim: true },
+        fileSize: { type: Number },
+        mimeType: { type: String },
+        uploadedAt: { type: Date },
       },
       websiteUrl: {
         type: String,
@@ -190,6 +210,22 @@ const userSchema = new mongoose.Schema(
       industry: {
         type: String,
         trim: true,
+      },
+      problem: {
+        type: String,
+        trim: true,
+      },
+      solution: {
+        type: String,
+        trim: true,
+      },
+      businessModel: {
+        type: String,
+        trim: true,
+      },
+      fundingTarget: {
+        type: Number,
+        min: 0,
       },
       foundingYear: {
         type: Number,
@@ -225,6 +261,14 @@ const userSchema = new mongoose.Schema(
       },
       projectLinks: {
         type: [String],
+        default: [],
+      },
+      completedLessons: {
+        type: [Number],
+        default: [],
+      },
+      savedLessons: {
+        type: [Number],
         default: [],
       },
     },

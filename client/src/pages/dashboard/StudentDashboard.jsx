@@ -73,8 +73,28 @@ const lessonLibrary = [
 ];
 
 const StudentDashboard = () => {
-	const { user, logout } = useAuth();
-	const [completedLessons, setCompletedLessons] = useState([1, 4]);
+	const { user, logout, setUser } = useAuth();
+	const [completedLessons, setCompletedLessons] = useState([]);
+	const [savedLessons, setSavedLessons] = useState([]);
+	const [selectedCategory, setSelectedCategory] = useState('All');
+	const [notification, setNotification] = useState('');
+
+	// Edit Profile Modal State
+	const [isEditOpen, setIsEditOpen] = useState(false);
+	const [savingProfile, setSavingProfile] = useState(false);
+	const [editError, setEditError] = useState('');
+	const [formData, setFormData] = useState({
+		fullName: '',
+		institutionName: '',
+		program: '',
+		graduationYear: '',
+		incubatorName: '',
+		bio: '',
+		location: '',
+		skills: '',
+		interests: '',
+		projectLinks: '',
+	});
 
 	// Phase 2 Matching and Discovery State
 	const [matches, setMatches] = useState([]);
@@ -85,16 +105,118 @@ const StudentDashboard = () => {
 	const [page, setPage] = useState(1);
 	const [totalPages, setTotalPages] = useState(1);
 
+	// Load persisted lesson progress from user model
+	useEffect(() => {
+		if (user?.studentProfile) {
+			setCompletedLessons(user.studentProfile.completedLessons || []);
+			setSavedLessons(user.studentProfile.savedLessons || []);
+		}
+	}, [user]);
+
+	// Sync modal form fields
+	useEffect(() => {
+		if (user) {
+			const stp = user.studentProfile || {};
+			setFormData({
+				fullName: user.fullName || '',
+				institutionName: stp.institutionName || user.roleDetails?.student?.education || '',
+				program: stp.program || '',
+				graduationYear: stp.graduationYear || '',
+				incubatorName: stp.incubatorName || '',
+				bio: user.bio || '',
+				location: user.location || '',
+				skills: Array.isArray(user.skills) ? user.skills.join(', ') : '',
+				interests: Array.isArray(user.interests) ? user.interests.join(', ') : '',
+				projectLinks: Array.isArray(stp.projectLinks) ? stp.projectLinks.join(', ') : '',
+			});
+		}
+	}, [user, isEditOpen]);
+
 	const completionPercentage = useMemo(() => {
 		return Math.round((completedLessons.length / lessonLibrary.length) * 100);
 	}, [completedLessons]);
 
-	const progressLabel = completionPercentage >= 75 ? 'Advanced' : completionPercentage >= 40 ? 'In progress' : 'Getting started';
+	const progressLabel =
+		completionPercentage >= 75 ? 'Advanced' : completionPercentage >= 40 ? 'In progress' : 'Getting started';
 
-	const toggleLessonCompletion = (lessonId) => {
-		setCompletedLessons((current) =>
-			current.includes(lessonId) ? current.filter((id) => id !== lessonId) : [...current, lessonId]
-		);
+	const toggleLessonCompletion = async (lessonId) => {
+		const updated = completedLessons.includes(lessonId)
+			? completedLessons.filter((id) => id !== lessonId)
+			: [...completedLessons, lessonId];
+
+		setCompletedLessons(updated);
+
+		try {
+			const res = await api.put('/profile', {
+				studentProfile: {
+					completedLessons: updated,
+					savedLessons,
+				},
+			});
+			if (res.data.user) {
+				setUser(res.data.user);
+			}
+		} catch (err) {
+			console.error('Failed to persist lesson completion:', err);
+		}
+	};
+
+	const toggleLessonBookmark = async (lessonId) => {
+		const updated = savedLessons.includes(lessonId)
+			? savedLessons.filter((id) => id !== lessonId)
+			: [...savedLessons, lessonId];
+
+		setSavedLessons(updated);
+
+		try {
+			const res = await api.put('/profile', {
+				studentProfile: {
+					completedLessons,
+					savedLessons: updated,
+				},
+			});
+			if (res.data.user) {
+				setUser(res.data.user);
+			}
+		} catch (err) {
+			console.error('Failed to persist lesson bookmark:', err);
+		}
+	};
+
+	const handleSaveProfile = async (e) => {
+		e.preventDefault();
+		setSavingProfile(true);
+		setEditError('');
+
+		try {
+			const payload = {
+				fullName: formData.fullName.trim(),
+				bio: formData.bio.trim(),
+				location: formData.location.trim(),
+				skills: formData.skills ? formData.skills.split(',').map((s) => s.trim()).filter(Boolean) : [],
+				interests: formData.interests ? formData.interests.split(',').map((i) => i.trim()).filter(Boolean) : [],
+				studentProfile: {
+					institutionName: formData.institutionName.trim(),
+					program: formData.program.trim(),
+					graduationYear: formData.graduationYear ? Number(formData.graduationYear) : undefined,
+					incubatorName: formData.incubatorName.trim(),
+					projectLinks: formData.projectLinks ? formData.projectLinks.split(',').map((p) => p.trim()).filter(Boolean) : [],
+					completedLessons,
+					savedLessons,
+				},
+			};
+
+			const response = await api.put('/profile', payload);
+			setUser(response.data.user);
+			setIsEditOpen(false);
+			setNotification('Student workspace profile updated and saved to database.');
+			setTimeout(() => setNotification(''), 4000);
+		} catch (err) {
+			console.error('Failed to update student profile:', err);
+			setEditError(err.response?.data?.message || 'Failed to update student profile.');
+		} finally {
+			setSavingProfile(false);
+		}
 	};
 
 	const fetchMatches = async () => {
@@ -121,7 +243,7 @@ const StudentDashboard = () => {
 			setStartups(res.data.data?.startups || []);
 			setTotalPages(res.data.data?.pagination?.totalPages || 1);
 		} catch (err) {
-			console.error('Failed to fetch startups for student:', err);
+			console.error('Failed to fetch startups discovery:', err);
 		} finally {
 			setStartupsLoading(false);
 		}
@@ -134,396 +256,570 @@ const StudentDashboard = () => {
 		}
 	}, [user, page, searchQuery]);
 
+	const filteredLessons = useMemo(() => {
+		if (selectedCategory === 'Saved') {
+			return lessonLibrary.filter((lesson) => savedLessons.includes(lesson.id));
+		}
+		if (selectedCategory === 'Completed') {
+			return lessonLibrary.filter((lesson) => completedLessons.includes(lesson.id));
+		}
+		if (selectedCategory === 'All') {
+			return lessonLibrary;
+		}
+		return lessonLibrary.filter((lesson) => lesson.category === selectedCategory);
+	}, [selectedCategory, completedLessons, savedLessons]);
+
 	if (!user) {
 		return null;
 	}
 
+	const stp = user.studentProfile || {};
+	const university = stp.institutionName || 'University / Academic Program';
+	const program = stp.program || 'Student Founder';
+
 	return (
 		<main className="min-h-screen px-4 py-6 sm:px-6 lg:px-8">
-			<div className="mx-auto grid max-w-7xl gap-6 xl:grid-cols-[280px_minmax(0,1fr)]">
-				<aside className="glass-panel rounded-[2rem] p-5 sm:p-6 lg:sticky lg:top-6 lg:h-fit">
-					<div className="space-y-5">
+			<div className="mx-auto max-w-7xl space-y-6">
+				{/* Student Header */}
+				<header className="glass-panel rounded-[2rem] p-6 sm:p-8">
+					<div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
 						<div>
-							<p className="text-xs uppercase tracking-[0.3em] text-slate-400">Student Incubator</p>
-							<h1 className="mt-2 font-display text-3xl font-bold text-white">LMS Dashboard</h1>
-							<p className="mt-2 text-sm leading-6 text-slate-300">
-								Follow your startup curriculum, track progress, and network with active startup founders.
+							<div className="flex items-center gap-2">
+								<p className="text-xs uppercase tracking-[0.3em] text-teal-300">Student Founder Workspace</p>
+								{stp.incubatorName && (
+									<span className="rounded-full bg-teal-400/15 px-2.5 py-0.5 text-[0.65rem] font-semibold text-teal-200">
+										🏛 {stp.incubatorName}
+									</span>
+								)}
+							</div>
+							<h1 className="mt-2 font-display text-3xl font-bold text-white sm:text-4xl">
+								{user.fullName}
+							</h1>
+							<p className="mt-1 text-sm font-semibold text-gold">
+								{program} • {university} {stp.graduationYear ? `(Class of ${stp.graduationYear})` : ''}
+							</p>
+							<p className="mt-2 max-w-2xl text-xs leading-6 text-slate-300">
+								{user.bio || 'Develop entrepreneurial skills, progress through startup milestones, and connect with peer founders and mentors.'}
 							</p>
 						</div>
 
-						<div className="rounded-[1.5rem] border border-white/10 bg-slate-950/55 p-4">
-							<p className="text-xs uppercase tracking-[0.28em] text-teal-300">Progress tracker</p>
-							<div className="mt-3 flex items-end justify-between gap-3">
-								<div>
-									<p className="text-4xl font-bold text-white">{completionPercentage}%</p>
-									<p className="mt-1 text-sm text-slate-400">{progressLabel} curriculum completion</p>
-								</div>
-								<span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-slate-100">
-									{completedLessons.length}/{lessonLibrary.length} lessons
-								</span>
-							</div>
-
-							<div className="mt-4 h-3 rounded-full bg-slate-800">
-								<div
-									className="h-3 rounded-full bg-gradient-to-r from-gold via-teal-400 to-cyan-400 transition-all duration-300"
-									style={{ width: `${completionPercentage}%` }}
-								/>
-							</div>
+						<div className="flex flex-wrap items-center gap-3">
+							<button
+								type="button"
+								onClick={() => setIsEditOpen(true)}
+								className="primary-button text-xs py-2 px-4"
+							>
+								✎ Edit Profile
+							</button>
+							<button className="ghost-button text-xs py-2 px-4" type="button" onClick={logout}>
+								Logout
+							</button>
 						</div>
-
-						<div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-4">
-							<p className="text-xs uppercase tracking-[0.28em] text-gold">Profile</p>
-							<p className="mt-3 text-lg font-semibold text-white">{user.fullName}</p>
-							<p className="mt-1 text-sm text-slate-300">{user.studentProfile?.incubatorName || 'Student incubator member'}</p>
-							<p className="mt-3 text-sm text-slate-400">Track your curriculum, mentor meetings, and startup journey in one place.</p>
-						</div>
-
-						<button className="ghost-button w-full" type="button" onClick={logout}>
-							Logout
-						</button>
 					</div>
-				</aside>
 
-				<section className="space-y-6">
-					<header className="glass-panel rounded-[2rem] p-6 sm:p-8">
-						<div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-							<div className="max-w-3xl space-y-4">
-								<p className="text-sm uppercase tracking-[0.3em] text-slate-400">Learning management system</p>
-								<h2 className="font-display text-4xl font-bold tracking-tight text-white sm:text-5xl">
-									Build your startup from idea to pitch-ready execution.
-								</h2>
-								<p className="max-w-2xl text-sm leading-7 text-slate-300 sm:text-base">
-									The dashboard is structured like an LMS, helping you move through roadmap milestones, curriculum lessons,
-									and measurable progress without losing momentum.
-								</p>
-							</div>
+					{/* Quick Details Bar */}
+					<div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4 border-t border-white/10 pt-5">
+						<div className="rounded-xl border border-white/10 bg-white/5 p-3">
+							<span className="text-[0.65rem] uppercase tracking-wider text-slate-400">Curriculum Progress</span>
+							<p className="mt-1 text-xs font-bold text-teal-300">
+								{completedLessons.length} / {lessonLibrary.length} Lessons ({completionPercentage}%)
+							</p>
+						</div>
+						<div className="rounded-xl border border-white/10 bg-white/5 p-3">
+							<span className="text-[0.65rem] uppercase tracking-wider text-slate-400">Bookmarked Lessons</span>
+							<p className="mt-1 text-xs font-bold text-gold">{savedLessons.length} Saved</p>
+						</div>
+						<div className="rounded-xl border border-white/10 bg-white/5 p-3">
+							<span className="text-[0.65rem] uppercase tracking-wider text-slate-400">Location</span>
+							<p className="mt-1 text-xs font-bold text-white truncate">{user.location || 'Not specified'}</p>
+						</div>
+						<div className="rounded-xl border border-white/10 bg-white/5 p-3">
+							<span className="text-[0.65rem] uppercase tracking-wider text-slate-400">Status</span>
+							<p className="mt-1 text-xs font-bold text-white">{progressLabel}</p>
+						</div>
+					</div>
 
-							<div className="grid gap-3 sm:grid-cols-3 xl:w-[32rem]">
-								<MetricCard label="Current stage" value="Incubation" />
-								<MetricCard label="Completed" value={`${completionPercentage}%`} />
-								<MetricCard label="Next step" value={roadmapSteps.find((step) => step.title === 'Pitching') ? 'Pitching' : 'Roadmap'} />
+					{notification && (
+						<div className="mt-4 rounded-xl border border-teal-500/30 bg-teal-500/10 px-4 py-3 text-xs text-teal-200">
+							{notification}
+						</div>
+					)}
+				</header>
+
+				{/* Student Skills & Interests Card */}
+				{(user.skills?.length || user.interests?.length || stp.projectLinks?.length) ? (
+					<section className="glass-panel rounded-[2rem] p-5 sm:p-6">
+						<div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+							<div>
+								<p className="text-xs uppercase tracking-[0.28em] text-teal-300">Background & Competencies</p>
+								<h3 className="mt-1 text-lg font-bold text-white">Skills & Project Portfolio</h3>
 							</div>
 						</div>
-					</header>
-
-					<div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-						<div className="space-y-6">
-							<div className="glass-panel rounded-[2rem] p-5 sm:p-6">
-								<div className="mb-4 flex items-center justify-between gap-3">
-									<div>
-										<p className="text-xs uppercase tracking-[0.28em] text-rose-300">Startup Roadmap</p>
-										<h3 className="mt-1 text-xl font-semibold text-white">Milestone progression</h3>
+						<div className="mt-4 grid gap-4 md:grid-cols-3">
+							{user.skills?.length ? (
+								<div className="rounded-xl border border-white/10 bg-white/5 p-3">
+									<p className="text-[0.65rem] uppercase tracking-wider text-slate-400">Technical / Domain Skills</p>
+									<div className="mt-2 flex flex-wrap gap-1.5">
+										{user.skills.map((sk) => (
+											<span key={sk} className="rounded bg-teal-400/15 px-2 py-0.5 text-xs text-teal-200">
+												{sk}
+											</span>
+										))}
 									</div>
-									<span className="rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-slate-100">
-										4-step sequence
+								</div>
+							) : null}
+
+							{user.interests?.length ? (
+								<div className="rounded-xl border border-white/10 bg-white/5 p-3">
+									<p className="text-[0.65rem] uppercase tracking-wider text-slate-400">Industry Interests</p>
+									<div className="mt-2 flex flex-wrap gap-1.5">
+										{user.interests.map((it) => (
+											<span key={it} className="rounded bg-cyan-400/15 px-2 py-0.5 text-xs text-cyan-200">
+												{it}
+											</span>
+										))}
+									</div>
+								</div>
+							) : null}
+
+							{stp.projectLinks?.length ? (
+								<div className="rounded-xl border border-white/10 bg-white/5 p-3">
+									<p className="text-[0.65rem] uppercase tracking-wider text-slate-400">Project / Portfolio Links</p>
+									<div className="mt-2 space-y-1">
+										{stp.projectLinks.map((link) => (
+											<a
+												key={link}
+												href={link.startsWith('http') ? link : `https://${link}`}
+												target="_blank"
+												rel="noopener noreferrer"
+												className="block truncate text-xs text-teal-300 hover:underline"
+											>
+												🔗 {link.replace(/^https?:\/\//, '')}
+											</a>
+										))}
+									</div>
+								</div>
+							) : null}
+						</div>
+					</section>
+				) : null}
+
+				{/* Startup Launch Roadmap */}
+				<section className="glass-panel rounded-[2rem] p-6 sm:p-8">
+					<div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-white/10 pb-4">
+						<div>
+							<p className="text-xs uppercase tracking-[0.28em] text-teal-300">Founder Milestones</p>
+							<h2 className="mt-1 text-2xl font-bold text-white">Startup Launch Roadmap</h2>
+						</div>
+						<span className="rounded-full bg-white/10 px-3 py-1 text-xs text-slate-300">
+							Phase 1 of 4
+						</span>
+					</div>
+
+					<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+						{roadmapSteps.map((step, index) => (
+							<div
+								key={step.title}
+								className="relative rounded-2xl border border-white/10 bg-slate-950/40 p-5 transition hover:border-white/20"
+							>
+								<div className="flex items-center justify-between">
+									<span className="font-mono text-xs font-bold text-gold">STEP 0{index + 1}</span>
+									<span className="rounded-full bg-white/10 px-2 py-0.5 text-[0.65rem] text-slate-300">
+										{index === 0 ? 'Active' : 'Upcoming'}
 									</span>
 								</div>
-
-								<div className="grid gap-4 md:grid-cols-2">
-									{roadmapSteps.map((step, index) => {
-										const isCompleted = index < completedLessons.length;
-										const isCurrent = index === Math.min(completedLessons.length, roadmapSteps.length - 1);
-
-										return (
-											<article
-												key={step.title}
-												className={`rounded-[1.5rem] border p-5 transition duration-300 ${
-													isCompleted
-														? 'border-teal-400/30 bg-teal-400/10'
-														: isCurrent
-															? 'border-gold/30 bg-gold/10'
-															: 'border-white/10 bg-slate-950/55'
-												}`}
-											>
-												<div className="flex items-start justify-between gap-3">
-													<div>
-														<p className="text-xs uppercase tracking-[0.28em] text-slate-400">Step {index + 1}</p>
-														<h4 className="mt-2 text-lg font-semibold text-white">{step.title}</h4>
-													</div>
-													<span className={`rounded-full px-3 py-1 text-xs font-semibold ${isCompleted ? 'bg-teal-400/15 text-teal-200' : 'bg-white/10 text-slate-200'}`}>
-														{isCompleted ? 'Completed' : isCurrent ? 'Current' : 'Upcoming'}
-													</span>
-												</div>
-												<p className="mt-3 text-sm leading-6 text-slate-300">{step.description}</p>
-												<p className="mt-4 text-xs uppercase tracking-[0.24em] text-gold">Focus: {step.focus}</p>
-											</article>
-										);
-									})}
+								<h3 className="mt-3 text-base font-bold text-white">{step.title}</h3>
+								<p className="mt-2 text-xs leading-5 text-slate-300">{step.description}</p>
+								<div className="mt-4 border-t border-white/10 pt-3">
+									<p className="text-[0.65rem] uppercase tracking-wider text-teal-300 font-semibold">Key Focus</p>
+									<p className="mt-0.5 text-xs text-slate-200">{step.focus}</p>
 								</div>
 							</div>
-
-							<div className="glass-panel rounded-[2rem] p-5 sm:p-6">
-								<div className="mb-4 flex items-center justify-between gap-3">
-									<div>
-										<p className="text-xs uppercase tracking-[0.28em] text-teal-300">Lesson Library</p>
-										<h3 className="mt-1 text-xl font-semibold text-white">Curriculum cards</h3>
-									</div>
-									<span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300">
-										{lessonLibrary.length} lessons
-									</span>
-								</div>
-
-								<div className="grid gap-4 md:grid-cols-2">
-									{lessonLibrary.map((lesson) => {
-										const completed = completedLessons.includes(lesson.id);
-
-										return (
-											<article
-												key={lesson.id}
-												className={`rounded-[1.5rem] border p-5 transition duration-300 hover:-translate-y-1 ${
-													completed ? 'border-teal-400/25 bg-teal-400/10' : 'border-white/10 bg-slate-950/55 hover:border-white/20'
-												}`}
-											>
-												<div className="flex items-start justify-between gap-3">
-													<div>
-														<p className="text-xs uppercase tracking-[0.28em] text-slate-400">{lesson.category}</p>
-														<h4 className="mt-2 text-lg font-semibold text-white">{lesson.title}</h4>
-													</div>
-													<span className="rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-slate-100">{lesson.duration}</span>
-												</div>
-												<p className="mt-3 text-sm leading-6 text-slate-300">{lesson.description}</p>
-
-												<div className="mt-5 flex items-center justify-between gap-3">
-													<button
-														className="primary-button"
-														type="button"
-														onClick={() => toggleLessonCompletion(lesson.id)}
-													>
-														{completed ? 'Mark incomplete' : 'Mark complete'}
-													</button>
-													<span className={`text-sm font-semibold ${completed ? 'text-teal-200' : 'text-slate-400'}`}>
-														{completed ? 'Done' : 'In progress'}
-													</span>
-												</div>
-											</article>
-										);
-									})}
-								</div>
-							</div>
-						</div>
-
-						<aside className="space-y-6">
-							<div className="glass-panel rounded-[2rem] p-5 sm:p-6">
-								<div className="mb-4">
-									<p className="text-xs uppercase tracking-[0.28em] text-gold">Curriculum progress</p>
-									<h3 className="mt-1 text-xl font-semibold text-white">Completion tracker</h3>
-								</div>
-
-								<div className="space-y-4">
-									<div className="rounded-[1.5rem] border border-white/10 bg-slate-950/55 p-4">
-										<div className="flex items-center justify-between gap-3">
-											<span className="text-sm text-slate-400">Overall progress</span>
-											<span className="text-sm font-semibold text-white">{completionPercentage}%</span>
-										</div>
-										<div className="mt-3 h-3 rounded-full bg-slate-800">
-											<div
-												className="h-3 rounded-full bg-gradient-to-r from-gold via-teal-400 to-cyan-400 transition-all duration-300"
-												style={{ width: `${completionPercentage}%` }}
-											/>
-										</div>
-									</div>
-
-									<div className="grid gap-3 sm:grid-cols-2">
-										<MetricCard label="Lessons done" value={completedLessons.length} />
-										<MetricCard label="Lessons left" value={lessonLibrary.length - completedLessons.length} />
-									</div>
-
-									<div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-4">
-										<p className="text-xs uppercase tracking-[0.28em] text-slate-400">Current focus</p>
-										<p className="mt-3 text-sm leading-6 text-slate-200">
-											{completionPercentage < 30
-												? 'Start with problem validation and customer discovery before spending time building the product.'
-												: completionPercentage < 70
-													? 'You are moving into execution. Concentrate on MVP quality, feedback loops, and early traction.'
-													: 'You are nearing pitch readiness. Refine the narrative, tighten the deck, and prepare for investor conversations.'}
-										</p>
-									</div>
-								</div>
-							</div>
-
-							<div className="glass-panel rounded-[2rem] p-5 sm:p-6">
-								<p className="text-xs uppercase tracking-[0.28em] text-rose-300">Student profile</p>
-								<h3 className="mt-1 text-xl font-semibold text-white">Incubator details</h3>
-								<div className="mt-4 space-y-3 text-sm text-slate-300">
-									<p><span className="text-slate-400">Name:</span> {user.fullName}</p>
-									<p><span className="text-slate-400">Incubator:</span> {user.studentProfile?.incubatorName || 'Not set'}</p>
-									<p><span className="text-slate-400">Program:</span> {user.studentProfile?.program || 'Not set'}</p>
-									<p><span className="text-slate-400">Graduation:</span> {user.studentProfile?.graduationYear || 'Not set'}</p>
-								</div>
-							</div>
-						</aside>
-					</div>
-
-					{/* Live Network & Requests */}
-					<NetworkHub title="Student Network & Connection Hub" />
-
-					{/* Recommended Startup Matches via /api/match */}
-					<div className="glass-panel rounded-[2rem] p-5 sm:p-6">
-						<div className="mb-5 flex items-center justify-between border-b border-white/10 pb-4">
-							<div>
-								<p className="text-xs uppercase tracking-[0.28em] text-teal-300">Matching Engine</p>
-								<h3 className="mt-1 text-xl font-semibold text-white">Recommended Startup Matches & Mentors</h3>
-							</div>
-							<span className="rounded-full bg-teal-400/10 px-3 py-1 text-xs font-semibold text-teal-200">
-								Live Match Score
-							</span>
-						</div>
-
-						{matchesLoading ? (
-							<p className="py-8 text-center text-xs text-slate-400">Loading complementary startup matches...</p>
-						) : matches.length === 0 ? (
-							<div className="rounded-2xl border border-dashed border-white/10 bg-white/5 p-6 text-center text-xs text-slate-400">
-								No new recommendations right now. Expand your skills and interests to discover more startups.
-							</div>
-						) : (
-							<div className="grid gap-4 md:grid-cols-2">
-								{matches.map((match) => (
-									<div
-										key={match.id || match._id}
-										className="flex flex-col justify-between rounded-2xl border border-white/10 bg-slate-950/40 p-5"
-									>
-										<div>
-											<div className="flex items-start justify-between gap-3">
-												<div>
-													<p className="text-xs uppercase tracking-[0.28em] text-gold">{match.domain || 'Startup'}</p>
-													<h4 className="mt-1 text-lg font-semibold text-white">{match.name}</h4>
-												</div>
-												<span className="rounded-full bg-teal-400/15 px-2.5 py-1 text-xs font-bold text-teal-200">
-													{match.matchScore} pts
-												</span>
-											</div>
-											<p className="mt-2 text-xs text-slate-300 line-clamp-2">{match.bio || 'Early stage startup seeking student collaborators.'}</p>
-											{match.sharedSkills && match.sharedSkills.length ? (
-												<div className="mt-3 flex flex-wrap gap-1">
-													{match.sharedSkills.map((sk) => (
-														<span key={sk} className="rounded bg-teal-400/10 px-2 py-0.5 text-[0.65rem] text-teal-300">
-															+ {sk}
-														</span>
-													))}
-												</div>
-											) : null}
-										</div>
-										<div className="mt-4 border-t border-white/10 pt-3">
-											<ConnectionActions
-												targetUserId={match.id || match._id}
-												initialStatus={match.connectionStatus || 'none'}
-												initialConnectionId={match.connectionId}
-											/>
-										</div>
-									</div>
-								))}
-							</div>
-						)}
-					</div>
-
-					{/* Live Startup Discovery */}
-					<div className="glass-panel rounded-[2rem] p-5 sm:p-6">
-						<div className="mb-5 flex flex-col gap-4 border-b border-white/10 pb-4">
-							<div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-								<div>
-									<p className="text-xs uppercase tracking-[0.28em] text-rose-300">Discovery Engine</p>
-									<h3 className="mt-1 text-xl font-semibold text-white">Browse Active Startups & Founders</h3>
-								</div>
-								<p className="text-xs text-slate-400">Page {page} of {totalPages}</p>
-							</div>
-
-							<div>
-								<input
-									type="text"
-									value={searchQuery}
-									onChange={(e) => {
-										setSearchQuery(e.target.value);
-										setPage(1);
-									}}
-									placeholder="Search startups by company name, industry, founder, skills..."
-									className="input-field text-sm"
-								/>
-							</div>
-						</div>
-
-						{startupsLoading ? (
-							<p className="py-8 text-center text-xs text-slate-400">Loading startup directory...</p>
-						) : startups.length === 0 ? (
-							<div className="rounded-2xl border border-dashed border-white/10 bg-white/5 p-8 text-center text-xs text-slate-400">
-								No startups found. Try adjusting your search keywords.
-							</div>
-						) : (
-							<div className="grid gap-4 md:grid-cols-2">
-								{startups.map((startup) => (
-									<div
-										key={startup.id || startup._id}
-										className="flex flex-col justify-between rounded-2xl border border-white/10 bg-slate-950/40 p-5"
-									>
-										<div>
-											<div className="flex items-start justify-between gap-3">
-												<div>
-													<p className="text-xs uppercase tracking-[0.28em] text-teal-300">{startup.domain}</p>
-													<h4 className="mt-1 text-lg font-semibold text-white">{startup.name}</h4>
-												</div>
-												<span className="rounded-full bg-white/10 px-2.5 py-1 text-xs text-slate-200">
-													{startup.stage}
-												</span>
-											</div>
-											<p className="mt-2 text-xs text-slate-300 line-clamp-2">{startup.summary}</p>
-
-											{startup.skills && startup.skills.length ? (
-												<div className="mt-3 flex flex-wrap gap-1.5">
-													{startup.skills.slice(0, 3).map((sk) => (
-														<span key={sk} className="rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-[0.65rem] text-slate-200">
-															{sk}
-														</span>
-													))}
-												</div>
-											) : null}
-										</div>
-
-										<div className="mt-4 border-t border-white/10 pt-3">
-											<ConnectionActions
-												targetUserId={startup.id || startup._id}
-												initialStatus={startup.connectionStatus || 'none'}
-												initialConnectionId={startup.connectionId}
-											/>
-										</div>
-									</div>
-								))}
-							</div>
-						)}
-
-						{totalPages > 1 ? (
-							<div className="mt-6 flex items-center justify-between border-t border-white/10 pt-4 text-xs text-slate-400">
-								<span>Page {page} of {totalPages}</span>
-								<div className="flex gap-2">
-									<button
-										type="button"
-										onClick={() => setPage((p) => Math.max(1, p - 1))}
-										disabled={page === 1}
-										className="rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 hover:bg-white/10 disabled:opacity-40"
-									>
-										Previous
-									</button>
-									<button
-										type="button"
-										onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-										disabled={page === totalPages}
-										className="rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 hover:bg-white/10 disabled:opacity-40"
-									>
-										Next
-									</button>
-								</div>
-							</div>
-						) : null}
+						))}
 					</div>
 				</section>
+
+				{/* Persistent Learning & Lesson Area */}
+				<section className="glass-panel rounded-[2rem] p-6 sm:p-8">
+					<div className="mb-6 flex flex-col gap-4 border-b border-white/10 pb-5">
+						<div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+							<div>
+								<p className="text-xs uppercase tracking-[0.28em] text-gold">Learning Curriculum</p>
+								<h2 className="mt-1 text-2xl font-bold text-white">Startup Playbooks & Resources</h2>
+							</div>
+
+							{/* Category & Saved Filter Pills */}
+							<div className="flex flex-wrap gap-1.5">
+								{['All', 'Saved', 'Completed', 'Foundations', 'Growth', 'Fundraising'].map((cat) => (
+									<button
+										key={cat}
+										type="button"
+										onClick={() => setSelectedCategory(cat)}
+										className={`rounded-xl border px-3 py-1 text-xs font-medium transition ${
+											selectedCategory === cat
+												? 'border-gold bg-gold/20 text-gold font-bold'
+												: 'border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'
+										}`}
+									>
+										{cat === 'Saved' ? `★ Saved (${savedLessons.length})` : cat}
+									</button>
+								))}
+							</div>
+						</div>
+					</div>
+
+					{filteredLessons.length === 0 ? (
+						<div className="rounded-2xl border border-dashed border-white/10 bg-white/5 p-8 text-center text-xs text-slate-400">
+							No lessons found for category "{selectedCategory}".
+						</div>
+					) : (
+						<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+							{filteredLessons.map((lesson) => {
+								const isDone = completedLessons.includes(lesson.id);
+								const isSaved = savedLessons.includes(lesson.id);
+
+								return (
+									<div
+										key={lesson.id}
+										className={`flex flex-col justify-between rounded-2xl border p-5 transition ${
+											isDone
+												? 'border-teal-500/40 bg-teal-500/5'
+												: 'border-white/10 bg-slate-950/40 hover:border-white/20'
+										}`}
+									>
+										<div>
+											<div className="flex items-start justify-between gap-2">
+												<span className="rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-[0.65rem] font-medium text-teal-300">
+													{lesson.category}
+												</span>
+												<div className="flex items-center gap-1.5">
+													<button
+														type="button"
+														onClick={() => toggleLessonBookmark(lesson.id)}
+														className={`rounded-lg p-1 text-xs transition ${
+															isSaved ? 'text-gold' : 'text-slate-500 hover:text-slate-300'
+														}`}
+														title={isSaved ? 'Remove Bookmark' : 'Save Lesson'}
+													>
+														{isSaved ? '★' : '☆'}
+													</button>
+													<span className="text-[0.65rem] text-slate-400">⏱ {lesson.duration}</span>
+												</div>
+											</div>
+
+											<h3 className="mt-2.5 text-base font-bold text-white">{lesson.title}</h3>
+											<p className="mt-2 text-xs leading-5 text-slate-300">{lesson.description}</p>
+										</div>
+
+										<div className="mt-5 border-t border-white/10 pt-3 flex items-center justify-between">
+											<button
+												type="button"
+												onClick={() => toggleLessonCompletion(lesson.id)}
+												className={`rounded-xl border px-3 py-1.5 text-xs font-semibold transition ${
+													isDone
+														? 'border-teal-400 bg-teal-400 text-slate-950 hover:bg-teal-300'
+														: 'border-white/15 bg-white/5 text-slate-200 hover:bg-white/10'
+												}`}
+											>
+												{isDone ? '✓ Completed' : 'Mark as Done'}
+											</button>
+											{isDone && (
+												<span className="text-[0.65rem] font-bold text-teal-300">
+													SAVED TO PROFILE
+												</span>
+											)}
+										</div>
+									</div>
+								);
+							})}
+						</div>
+					)}
+				</section>
+
+				{/* Live Network & Requests */}
+				<NetworkHub title="Student Collaborations & Network Requests" />
+
+				{/* Recommended Startup Matches (Phase 2) */}
+				<section className="glass-panel rounded-[2rem] p-6 sm:p-8">
+					<div className="mb-6 flex items-center justify-between border-b border-white/10 pb-4">
+						<div>
+							<p className="text-xs uppercase tracking-[0.28em] text-teal-300">AI Matching Engine</p>
+							<h2 className="mt-1 text-2xl font-bold text-white">Recommended Startup Matches</h2>
+						</div>
+						<span className="rounded-full bg-teal-400/10 px-3 py-1 text-xs font-semibold text-teal-200">
+							Complementary Roles
+						</span>
+					</div>
+
+					{matchesLoading ? (
+						<p className="py-8 text-center text-xs text-slate-400">Loading startup matches...</p>
+					) : matches.length === 0 ? (
+						<div className="rounded-2xl border border-dashed border-white/10 bg-white/5 p-6 text-center text-xs text-slate-400">
+							No recommendations found. Add more skills and interests to your profile.
+						</div>
+					) : (
+						<div className="grid gap-4 md:grid-cols-2">
+							{matches.map((match) => (
+								<div
+									key={match.id || match._id}
+									className="flex flex-col justify-between rounded-2xl border border-white/10 bg-slate-950/40 p-5"
+								>
+									<div>
+										<div className="flex items-start justify-between gap-3">
+											<div>
+												<p className="text-xs uppercase tracking-[0.28em] text-gold">{match.domain || 'Startup'}</p>
+												<h3 className="mt-1 text-lg font-bold text-white">{match.name}</h3>
+											</div>
+											<span className="rounded-full bg-teal-400/15 px-2.5 py-1 text-xs font-bold text-teal-200">
+												{match.matchScore} pts
+											</span>
+										</div>
+										<p className="mt-2 text-xs text-slate-300 line-clamp-2">{match.bio}</p>
+									</div>
+									<div className="mt-4 border-t border-white/10 pt-3">
+										<ConnectionActions
+											targetUserId={match.id || match._id}
+											initialStatus={match.connectionStatus || 'none'}
+											initialConnectionId={match.connectionId}
+										/>
+									</div>
+								</div>
+							))}
+						</div>
+					)}
+				</section>
+
+				{/* Live Startup Discovery (Phase 2) */}
+				<section className="glass-panel rounded-[2rem] p-6 sm:p-8">
+					<div className="mb-6 flex flex-col gap-4 border-b border-white/10 pb-5">
+						<div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+							<div>
+								<p className="text-xs uppercase tracking-[0.28em] text-rose-300">Discovery Engine</p>
+								<h2 className="mt-1 text-2xl font-bold text-white">Explore Early-Stage Startups</h2>
+							</div>
+							<p className="text-xs text-slate-400">Page {page} of {totalPages}</p>
+						</div>
+
+						<div>
+							<input
+								type="text"
+								value={searchQuery}
+								onChange={(e) => {
+									setSearchQuery(e.target.value);
+									setPage(1);
+								}}
+								placeholder="Search startups by keyword, industry, or project..."
+								className="input-field text-sm"
+							/>
+						</div>
+					</div>
+
+					{startupsLoading ? (
+						<p className="py-8 text-center text-xs text-slate-400">Loading startups...</p>
+					) : startups.length === 0 ? (
+						<div className="rounded-2xl border border-dashed border-white/10 bg-white/5 p-8 text-center text-xs text-slate-400">
+							No startups found matching your query.
+						</div>
+					) : (
+						<div className="grid gap-4 md:grid-cols-2">
+							{startups.map((s) => (
+								<div
+									key={s.id || s._id}
+									className="flex flex-col justify-between rounded-2xl border border-white/10 bg-slate-950/40 p-5"
+								>
+									<div>
+										<div className="flex items-start justify-between gap-3">
+											<div>
+												<p className="text-xs uppercase tracking-[0.28em] text-slate-400">{s.domain}</p>
+												<h3 className="mt-1 text-lg font-bold text-white">{s.name}</h3>
+											</div>
+											<span className="rounded-full bg-white/10 px-2.5 py-1 text-xs text-slate-200">
+												{s.stage || 'Seed'}
+											</span>
+										</div>
+										<p className="mt-2 text-xs text-slate-300 line-clamp-2">{s.summary || s.bio}</p>
+									</div>
+
+									<div className="mt-4 border-t border-white/10 pt-3">
+										<ConnectionActions
+											targetUserId={s.id || s._id}
+											initialStatus={s.connectionStatus || 'none'}
+											initialConnectionId={s.connectionId}
+										/>
+									</div>
+								</div>
+							))}
+						</div>
+					)}
+				</section>
 			</div>
+
+			{/* Edit Student Profile Modal */}
+			{isEditOpen && (
+				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+					<div className="glass-panel max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-[2rem] p-6 sm:p-8">
+						<div className="flex items-center justify-between border-b border-white/10 pb-4">
+							<div>
+								<p className="text-xs uppercase tracking-[0.28em] text-teal-300">Student Workspace</p>
+								<h3 className="mt-1 text-2xl font-bold text-white">Edit Student Profile</h3>
+							</div>
+							<button
+								type="button"
+								onClick={() => setIsEditOpen(false)}
+								className="rounded-full bg-white/10 p-2 text-slate-300 hover:bg-white/20"
+							>
+								✕
+							</button>
+						</div>
+
+						{editError && (
+							<div className="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">
+								{editError}
+							</div>
+						)}
+
+						<form onSubmit={handleSaveProfile} className="mt-5 space-y-4">
+							<div className="grid gap-4 sm:grid-cols-2">
+								<div>
+									<label className="text-xs font-semibold text-slate-300">Full Name</label>
+									<input
+										type="text"
+										required
+										className="input-field mt-1 text-sm"
+										value={formData.fullName}
+										onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
+									/>
+								</div>
+
+								<div>
+									<label className="text-xs font-semibold text-slate-300">Institution / University</label>
+									<input
+										type="text"
+										required
+										placeholder="e.g. Stanford University"
+										className="input-field mt-1 text-sm"
+										value={formData.institutionName}
+										onChange={(e) => setFormData({ ...formData, institutionName: e.target.value })}
+									/>
+								</div>
+							</div>
+
+							<div className="grid gap-4 sm:grid-cols-3">
+								<div>
+									<label className="text-xs font-semibold text-slate-300">Academic Program / Major</label>
+									<input
+										type="text"
+										placeholder="e.g. B.S. Computer Science"
+										className="input-field mt-1 text-sm"
+										value={formData.program}
+										onChange={(e) => setFormData({ ...formData, program: e.target.value })}
+									/>
+								</div>
+
+								<div>
+									<label className="text-xs font-semibold text-slate-300">Graduation Year</label>
+									<input
+										type="number"
+										min="1900"
+										max={new Date().getFullYear() + 10}
+										placeholder="e.g. 2026"
+										className="input-field mt-1 text-sm"
+										value={formData.graduationYear}
+										onChange={(e) => setFormData({ ...formData, graduationYear: e.target.value })}
+									/>
+								</div>
+
+								<div>
+									<label className="text-xs font-semibold text-slate-300">Incubator / Lab</label>
+									<input
+										type="text"
+										placeholder="e.g. Stanford Launchpad"
+										className="input-field mt-1 text-sm"
+										value={formData.incubatorName}
+										onChange={(e) => setFormData({ ...formData, incubatorName: e.target.value })}
+									/>
+								</div>
+							</div>
+
+							<div>
+								<label className="text-xs font-semibold text-slate-300">Bio & Interests</label>
+								<textarea
+									rows={3}
+									placeholder="Tell founders and mentors what you are building or passionate about..."
+									className="input-field mt-1 text-sm resize-none"
+									value={formData.bio}
+									onChange={(e) => setFormData({ ...formData, bio: e.target.value })}
+								/>
+							</div>
+
+							<div className="grid gap-4 sm:grid-cols-2">
+								<div>
+									<label className="text-xs font-semibold text-slate-300">Skills</label>
+									<input
+										type="text"
+										placeholder="e.g. React, Python, Product Design (comma-separated)"
+										className="input-field mt-1 text-sm"
+										value={formData.skills}
+										onChange={(e) => setFormData({ ...formData, skills: e.target.value })}
+									/>
+								</div>
+
+								<div>
+									<label className="text-xs font-semibold text-slate-300">Domain Interests</label>
+									<input
+										type="text"
+										placeholder="e.g. AI, Climate, Fintech (comma-separated)"
+										className="input-field mt-1 text-sm"
+										value={formData.interests}
+										onChange={(e) => setFormData({ ...formData, interests: e.target.value })}
+									/>
+								</div>
+							</div>
+
+							<div>
+								<label className="text-xs font-semibold text-slate-300">Location</label>
+								<input
+									type="text"
+									placeholder="e.g. Palo Alto, CA"
+									className="input-field mt-1 text-sm"
+									value={formData.location}
+									onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+								/>
+							</div>
+
+							<div>
+								<label className="text-xs font-semibold text-slate-300">Project / GitHub / Portfolio Links</label>
+								<input
+									type="text"
+									placeholder="e.g. https://github.com/myname/project (comma-separated)"
+									className="input-field mt-1 text-sm"
+									value={formData.projectLinks}
+									onChange={(e) => setFormData({ ...formData, projectLinks: e.target.value })}
+								/>
+							</div>
+
+							<div className="mt-6 flex justify-end gap-3 border-t border-white/10 pt-4">
+								<button
+									type="button"
+									onClick={() => setIsEditOpen(false)}
+									className="ghost-button px-5 py-2 text-sm"
+								>
+									Cancel
+								</button>
+								<button
+									type="submit"
+									disabled={savingProfile}
+									className="primary-button px-6 py-2 text-sm"
+								>
+									{savingProfile ? 'Saving Profile...' : 'Save Profile'}
+								</button>
+							</div>
+						</form>
+					</div>
+				</div>
+			)}
 		</main>
 	);
 };
-
-const MetricCard = ({ label, value }) => (
-	<div className="rounded-[1.5rem] border border-white/10 bg-white/5 p-4">
-		<p className="text-xs uppercase tracking-[0.28em] text-slate-400">{label}</p>
-		<p className="mt-2 text-2xl font-bold text-white">{value}</p>
-	</div>
-);
 
 export default StudentDashboard;

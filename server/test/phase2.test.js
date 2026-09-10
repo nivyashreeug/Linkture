@@ -37,7 +37,7 @@ const request = async (method, route, body = null, token = null) => {
 describe('Linkture Phase 2 Networking & Discovery Suite', () => {
   before(async () => {
     mongod = await MongoMemoryServer.create({
-      instance: { startupTimeoutMS: 120000 },
+      instance: { launchTimeout: 60000 },
     });
     const uri = mongod.getUri();
     await mongoose.connect(uri, { serverSelectionTimeoutMS: 10000 });

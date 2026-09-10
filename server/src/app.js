@@ -1,3 +1,4 @@
+const path = require('path');
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -9,10 +10,15 @@ const userRoutes = require('./routes/userRoutes');
 const profileRoutes = require('./routes/profileRoutes');
 const matchRoutes = require('./routes/matchRoutes');
 const connectionRoutes = require('./routes/connectionRoutes');
+const pitchDeckRoutes = require('./routes/pitchDeckRoutes');
 
 const app = express();
 
-app.use(helmet());
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+  })
+);
 app.use(
   cors({
     origin: process.env.CLIENT_URL || 'http://localhost:5173',
@@ -29,6 +35,9 @@ app.use(
   })
 );
 
+// Serve uploads directory securely
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
 app.get('/', (request, response) => {
   response.json({ 
     success: true, 
@@ -41,6 +50,7 @@ app.get('/', (request, response) => {
       profile: '/api/profile',
       match: '/api/match',
       connections: '/api/connections',
+      pitch: '/api/startups/pitch',
     }
   });
 });
@@ -54,6 +64,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/match', matchRoutes);
 app.use('/api/connections', connectionRoutes);
+app.use('/api/startups/pitch', pitchDeckRoutes);
 
 app.use((request, response, next) => {
   next(new ApiError(404, `Route not found: ${request.originalUrl}`));
